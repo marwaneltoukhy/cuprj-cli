@@ -1,3 +1,0 @@
-[console_scripts]
-cuprj = cuprj_cli.cli:main
-cuprj-gui = cuprj_cli.main_gui:main

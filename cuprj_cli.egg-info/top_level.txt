@@ -1,1 +1,0 @@
-cuprj_cli
