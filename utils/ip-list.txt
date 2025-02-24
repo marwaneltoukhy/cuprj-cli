@@ -1,9 +1,0 @@
-github.com/efabless/EF_UART
-github.com/efabless/EF_GPIO8
-github.com/efabless/EF_AES
-github.com/efabless/EF_SHA256
-github.com/efabless/EF_WDT32
-github.com/efabless/EF_I2S
-github.com/efabless/EF_I2C
-github.com/efabless/EF_TMR32
-github.com/efabless/EF_SPI

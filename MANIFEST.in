@@ -1,7 +1,0 @@
-include LICENSE
-include README.md
-include requirements.txt
-include ip-lib.json
-include examples/*.yaml
-include examples/*.v
-include examples/*.h 
