@@ -1,3 +1,32 @@
+Metadata-Version: 2.2
+Name: cuprj-cli
+Version: 0.1.0
+Summary: Caravel User's Project CLI - A tool for generating Verilog code for Wishbone systems
+Home-page: https://github.com/shalan/cuprj-cli
+Author: efabless
+Author-email: info@efabless.com
+Classifier: Development Status :: 4 - Beta
+Classifier: Intended Audience :: Developers
+Classifier: License :: OSI Approved :: MIT License
+Classifier: Programming Language :: Python :: 3
+Classifier: Programming Language :: Python :: 3.9
+Classifier: Topic :: Scientific/Engineering :: Electronic Design Automation (EDA)
+Requires-Python: >=3.9
+Description-Content-Type: text/markdown
+License-File: LICENSE
+Requires-Dist: PyYAML>=6.0
+Requires-Dist: PyQt6>=6.0; python_version >= "3.9"
+Requires-Dist: requests>=2.25.0
+Dynamic: author
+Dynamic: author-email
+Dynamic: classifier
+Dynamic: description
+Dynamic: description-content-type
+Dynamic: home-page
+Dynamic: requires-dist
+Dynamic: requires-python
+Dynamic: summary
+
 # cuprj-cli
 Caravel User's Project CLI
 
@@ -11,24 +40,14 @@ This repository contains a Python CLI tool for generating Verilog code for a Wis
 - **Display IP Information**: Show key details about a specific slave type, including cell count, interrupt support, FIFO usage, and external interfaces. Optionally display the full description with the `--full` flag.
 - **Robust Error Handling**: Provides clear error messages and logging to help troubleshoot issues with input files.
 - **CLI Commands**: Supports the `generate`, `list`, `info`, and `help` commands.
-- **GUI Interface**: Provides a graphical user interface for drag-and-drop IP configuration.
 
 ## Installation
 
-Ensure you have Python 3.9 or later installed. Install the package using pip:
+Ensure you have Python 3.9 or later installed. Install the required Python packages using pip:
 
 ```bash
-pip install cuprj-cli
+pip install pyyaml
 ```
-
-Or install from source:
-
-```bash
-git clone https://github.com/shalan/cuprj-cli.git
-cd cuprj-cli
-pip install -e .
-```
-
 ## CLI Commands
 
 ### generate
@@ -37,14 +56,11 @@ Generates the Wishbone bus Verilog code using the provided bus YAML file and the
 Usage:
 
 ```bash
-cuprj generate <bus_yaml_file> [--ip-lib IP_LIBRARY_JSON] [--output-dir OUTPUT_DIR] [--verilog-only] [--header-only]
+python your_script.py generate <bus_yaml_file> [ip_library_json]
 ```
 
 - bus_yaml_file: Path to the YAML file defining bus slaves.
-- --ip-lib: (Optional) Path or URL to the IP library JSON file. If not provided, the default GitHub URL is used.
-- --output-dir: (Optional) Output directory (default: current directory).
-- --verilog-only: (Optional) Generate only Verilog file.
-- --header-only: (Optional) Generate only C header file.
+- ip_library_json: (Optional) Path or URL to the IP library JSON file. If not provided, the default GitHub URL is used.
 
 ### list
 Lists all slave types available in the IP library.
@@ -52,49 +68,27 @@ Lists all slave types available in the IP library.
 Usage:
 
 ```bash
-cuprj list [--ip-library IP_LIBRARY_JSON]
+python your_script.py list [ip_library_json]
 ```
-- --ip-library: (Optional) Path or URL to the IP library JSON file. If not provided, the default GitHub URL is used.
-
+- ip_library_json: (Optional) Path or URL to the IP library JSON file. If not provided, the default GitHub URL is used.
 ### info
 Displays basic information about a specified slave type from the IP library. By default, it shows the cell count, whether interrupts are supported, FIFO usage, and external interfaces. Use the --full switch to include the full description.
 
 Usage:
 
 ```bash
-cuprj info <ip_name> [--ip-lib IP_LIBRARY_JSON] [--full]
+python your_script.py info <slave_type> [ip_library_json] [--full]
 ```
-- ip_name: The IP name of the slave type.
-- --ip-lib: (Optional) Path or URL to the IP library JSON file. If not provided, the default GitHub URL is used.
-- --full: (Optional) Include the full description of the slave type.
-
-### fetch-ips
-Fetches IP YAML files from GitHub repositories and aggregates them into a JSON file.
-
-Usage:
-
-```bash
-cuprj fetch-ips <input_file> [--output OUTPUT_FILE]
-```
-- input_file: Path to the text file containing GitHub repository URLs (one per line).
-- --output: (Optional) Output JSON file name (default: ip-lib.json).
-
-### gui
-Launches the graphical user interface for drag-and-drop IP configuration.
-
-Usage:
-
-```bash
-cuprj-gui [--ip-lib IP_LIBRARY_JSON]
-```
-- --ip-lib: (Optional) Path to the IP library JSON file (default: ip-lib.json).
+- slave_type: The IP name of the slave type.
+- ip_library_json: (Optional) Path or URL to the IP library JSON file. If not provided, the default GitHub URL is used.
+- `--full`: (Optional) Include the full description of the slave type.
 
 ### help
 Displays the help message with details of all available commands.
 
 Usage:
 ```bash
-cuprj help
+python your_script.py help
 ```
 
 ## Bus YAML File Format
@@ -128,25 +122,6 @@ slaves:
       io_oe: 14
     irq: 2
 ```
-
-## GUI Usage
-
-The GUI provides a drag-and-drop interface for configuring IPs. To launch the GUI, run:
-
-```bash
-cuprj-gui
-```
-
-Or:
-
-```bash
-cuprj gui
-```
-
-The GUI allows you to:
-1. Drag IPs from the left panel to the user project space
-2. Configure IO pins and IRQ assignments
-3. Generate Verilog code with a single click
 
 ## Disclaimer
 This project was developed with the help of ChatGPT o3-mini-high model.

@@ -6,7 +6,8 @@ import urllib.request
 import yaml
 import argparse
 import logging
-from typing import Any, Dict, List, Optional, Union
+import requests
+from typing import Any, Dict, List, Optional, Union, Tuple
 from dataclasses import dataclass, field
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
@@ -529,55 +530,45 @@ def generate_c_header(generator: "BusGenerator", bus_yaml_file: str) -> str:
     return "\n".join(lines)
 
 def generate_command(args: argparse.Namespace) -> None:
-    """Executes the generate command.
+    """Generate Verilog and C header files from a YAML configuration.
 
     Args:
-        args (argparse.Namespace): Command-line arguments.
+        args: Command line arguments.
     """
-    bus_yaml_file: str = args.bus
-    ip_library_source: str = args.ip_library if args.ip_library else DEFAULT_IPS_URL
-    try:
-        bus_data = load_yaml_file(bus_yaml_file)
-    except Exception as e:
-        logging.error(f"Failed to load bus YAML file: {e}")
-        sys.exit(1)
-    ip_json = load_json_file(ip_library_source)
-    bus_slaves = parse_bus_slaves(bus_data)
+    yaml_file = args.yaml_file
+    ip_lib = args.ip_lib
+    output_dir = args.output_dir
+    
+    # Load IP library
+    ip_json = load_json_file(ip_lib)
     ip_library = parse_ip_library(ip_json)
+    
+    # Load bus slaves configuration
+    bus_yaml = load_yaml_file(yaml_file)
+    bus_slaves = parse_bus_slaves(bus_yaml)
+    
+    # Generate Verilog code
     generator = BusGenerator(bus_slaves, ip_library)
-    verilog_code = generator.generate_verilog()
-    wrapper_code = generate_wrapper(verilog_code)
-    # Determine output file name by replacing .yaml/.yml with .v
-    output_filename = bus_yaml_file
-    if output_filename.lower().endswith(".yaml"):
-        output_filename = output_filename[:-5] + ".v"
-    elif output_filename.lower().endswith(".yml"):
-        output_filename = output_filename[:-4] + ".v"
-    else:
-        output_filename += ".v"
-    try:
-        with open(output_filename, "w") as out_f:
-            out_f.write(wrapper_code)
-        logging.info(f"Generated Verilog written to {output_filename}")
-    except Exception as e:
-        logging.error(f"Failed to write output file {output_filename}: {e}")
-        sys.exit(1)
-
-    header_code = generate_c_header(generator, bus_yaml_file)
-    output_header_filename = bus_yaml_file
-    if output_header_filename.lower().endswith(".yaml"):
-        output_header_filename = output_header_filename[:-5] + ".h"
-    elif output_header_filename.lower().endswith(".yml"):
-        output_header_filename = output_header_filename[:-4] + ".h"
-    else:
-        output_header_filename += ".h"
-    try:
-        with open(output_header_filename, "w") as header_f:
-            header_f.write(header_code)
-        logging.info(f"Generated C header written to {output_header_filename}")
-    except Exception as e:
-        logging.error(f"Failed to write header file {output_header_filename}: {e}")
-        sys.exit(1)
+    
+    if not args.header_only:
+        verilog_code = generator.generate_verilog()
+        wrapper_code = generate_wrapper(verilog_code)
+        
+        # Write Verilog file
+        verilog_file = os.path.join(output_dir, "wb_bus.v")
+        with open(verilog_file, "w") as f:
+            f.write(wrapper_code)
+        logging.info(f"Generated Verilog file: {verilog_file}")
+    
+    if not args.verilog_only:
+        # Generate C header
+        header_code = generate_c_header(generator, yaml_file)
+        
+        # Write C header file
+        header_file = os.path.join(output_dir, "wb_bus.h")
+        with open(header_file, "w") as f:
+            f.write(header_code)
+        logging.info(f"Generated C header file: {header_file}")
 
 
 def list_command(args: argparse.Namespace) -> None:
@@ -640,49 +631,211 @@ def help_command(parser: argparse.ArgumentParser) -> None:
     sys.exit(0)
 
 
+def parse_repo_url(url: str) -> Tuple[Optional[str], Optional[str]]:
+    """
+    Extracts the 'owner' and 'repo' from a GitHub URL.
+    
+    Args:
+        url: A GitHub URL, with or without "github.com/" prefix.
+             For example, both 'github.com/owner/repo' and 'owner/repo'.
+    
+    Returns:
+        A tuple containing (owner, repo) or (None, None) if parsing fails.
+    """
+    url = url.strip()
+    # Remove a leading "github.com/" if present
+    if url.startswith("github.com/"):
+        url = url[len("github.com/"):]
+    parts = url.split('/')
+    if len(parts) >= 2:
+        return parts[0], parts[1]
+    return None, None
+
+
+def fetch_yaml_from_repo(owner: str, repo: str) -> Optional[Tuple[str, str]]:
+    """
+    Attempts to fetch the YAML file named '<repo>.yaml' from the repository's root.
+    
+    Args:
+        owner: The GitHub repository owner/organization.
+        repo: The GitHub repository name.
+    
+    Returns:
+        A tuple (filename, content) if successful, otherwise None.
+    """
+    filename = f"{repo}.yaml"
+    branches = ["main", "master"]
+    
+    for branch in branches:
+        raw_url = f"https://raw.githubusercontent.com/{owner}/{repo}/{branch}/{filename}"
+        response = requests.get(raw_url)
+        if response.status_code == 200:
+            logging.info(f"Found YAML file at: {raw_url}")
+            return filename, response.text
+        else:
+            logging.info(f"Could not find file at {raw_url} (HTTP {response.status_code}).")
+    logging.info(f"YAML file {filename} not found in repository {owner}/{repo}.")
+    return None
+
+
+def fetch_ips_command(args: argparse.Namespace) -> None:
+    """
+    Fetches IP YAML files from GitHub repositories and aggregates them into a JSON file.
+    
+    Args:
+        args: Command line arguments containing the input file and output file.
+    """
+    input_file = args.input_file
+    output_file = args.output
+    
+    if not os.path.exists(input_file):
+        logging.error(f"Input file '{input_file}' not found.")
+        return
+    
+    with open(input_file, "r") as f:
+        repo_urls = [line.strip() for line in f if line.strip()]
+    
+    aggregated_slaves = []  # This list will store the parsed YAML content from each repo
+
+    for url in repo_urls:
+        owner, repo = parse_repo_url(url)
+        if not owner or not repo:
+            logging.error(f"Could not parse repository information from URL: {url}")
+            continue
+
+        logging.info(f"Processing repository: {owner}/{repo}")
+        result = fetch_yaml_from_repo(owner, repo)
+        if result:
+            file_name, content = result
+            try:
+                parsed_yaml = yaml.safe_load(content)
+                aggregated_slaves.append(parsed_yaml)
+                logging.info(f"Parsed YAML from {owner}/{repo} ({file_name}).")
+            except yaml.YAMLError as e:
+                logging.error(f"Error parsing YAML from {owner}/{repo} ({file_name}): {e}")
+        logging.info("-" * 40)
+    
+    # Aggregate the parsed YAML into a JSON structure under the key 'slaves'
+    aggregated_data = {"slaves": aggregated_slaves}
+    
+    with open(output_file, "w", encoding="utf-8") as out_file:
+        json.dump(aggregated_data, out_file, indent=4, default=str)
+    
+    logging.info(f"\nAggregated JSON file saved as: {output_file}")
+
+
 def main() -> None:
+    """Main entry point for the CLI."""
     parser = argparse.ArgumentParser(
-        description="CLI for generating Wishbone bus Verilog code and querying the slave library.",
-        add_help=False
+        description="CUPRJ CLI - A tool for generating Verilog and C headers for Caravel User Project bus configurations.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    subparsers = parser.add_subparsers(dest="command", required=True, help="Sub-commands")
-    gen_parser = subparsers.add_parser("generate", add_help=False,
-                                         help="Generate Verilog code from bus YAML and IP library.\n"
-                                              "Arguments:\n  bus: Path to bus YAML file listing attached slaves.\n"
-                                              "  ip_library: (Optional) Path or URL for IP library JSON (default: GitHub URL).")
-    gen_parser.add_argument("bus", type=str, help="Path to bus YAML file listing attached slaves.")
-    gen_parser.add_argument("ip_library", nargs="?", type=str, default=DEFAULT_IPS_URL,
-                            help="Path or URL for IP library JSON (default: GitHub URL).")
-    list_parser = subparsers.add_parser("list", add_help=False,
-                                          help="List all slave types in the IP library.\n"
-                                               "Arguments:\n  ip_library: (Optional) Path or URL for IP library JSON (default: GitHub URL).")
-    list_parser.add_argument("ip_library", nargs="?", type=str, default=DEFAULT_IPS_URL,
-                             help="Path or URL for IP library JSON (default: GitHub URL).")
-    info_parser = subparsers.add_parser("info", add_help=False,
-                                          help="Show basic info about a slave type from the IP library.\n"
-                                               "Arguments:\n  slave_type: The slave type (IP name) to display info for.\n"
-                                               "  ip_library: (Optional) Path or URL for IP library JSON (default: GitHub URL).\n"
-                                               "  --full: Show full description.")
-    info_parser.add_argument("slave_type", type=str, help="The slave type (IP name) to display info for.")
-    info_parser.add_argument("ip_library", nargs="?", type=str, default=DEFAULT_IPS_URL,
-                             help="Path or URL for IP library JSON (default: GitHub URL).")
-    info_parser.add_argument("--full", action="store_true", help="Show full description.")
-    help_parser = subparsers.add_parser("help", add_help=False,
-                                        help="Show this help message and exit.\nNo additional arguments are required.")
+    subparsers = parser.add_subparsers(dest="command", help="Command to execute")
+
+    # Generate command
+    generate_parser = subparsers.add_parser("generate", help="Generate Verilog and C header files")
+    generate_parser.add_argument("yaml_file", help="YAML configuration file")
+    generate_parser.add_argument(
+        "--ip-lib", 
+        default=DEFAULT_IPS_URL,
+        help=f"IP library JSON file or URL (default: {DEFAULT_IPS_URL})"
+    )
+    generate_parser.add_argument(
+        "--output-dir", 
+        default=".",
+        help="Output directory (default: current directory)"
+    )
+    generate_parser.add_argument(
+        "--verilog-only", 
+        action="store_true",
+        help="Generate only Verilog file"
+    )
+    generate_parser.add_argument(
+        "--header-only", 
+        action="store_true",
+        help="Generate only C header file"
+    )
+    generate_parser.set_defaults(func=generate_command)
+
+    # List command
+    list_parser = subparsers.add_parser("list", help="List available IPs")
+    list_parser.add_argument(
+        "--ip-lib", 
+        default=DEFAULT_IPS_URL,
+        help=f"IP library JSON file or URL (default: {DEFAULT_IPS_URL})"
+    )
+    list_parser.set_defaults(func=list_command)
+
+    # Info command
+    info_parser = subparsers.add_parser("info", help="Show information about a specific IP")
+    info_parser.add_argument("ip_name", help="Name of the IP")
+    info_parser.add_argument(
+        "--ip-lib", 
+        default=DEFAULT_IPS_URL,
+        help=f"IP library JSON file or URL (default: {DEFAULT_IPS_URL})"
+    )
+    info_parser.set_defaults(func=info_command)
+    
+    # Fetch IPs command
+    fetch_parser = subparsers.add_parser("fetch-ips", help="Fetch IP YAML files from GitHub repositories")
+    fetch_parser.add_argument(
+        "input_file", 
+        help="Path to the text file containing GitHub repository URLs (one per line)"
+    )
+    fetch_parser.add_argument(
+        "-o", "--output",
+        default="ip-lib.json",
+        help="Output JSON file name (default: ip-lib.json)"
+    )
+    fetch_parser.set_defaults(func=fetch_ips_command)
+
+    # Help command
+    help_parser = subparsers.add_parser("help", help="Show help for a specific command")
+    help_parser.set_defaults(func=lambda _: help_command(parser))
+
+    # GUI command
+    gui_parser = subparsers.add_parser("gui", help="Launch the graphical user interface")
+    gui_parser.add_argument(
+        "--ip-lib", 
+        default="ip-lib.json",
+        help="IP library JSON file (default: ip-lib.json)"
+    )
+    gui_parser.set_defaults(func=launch_gui)
+
     args = parser.parse_args()
 
-    if args.command == "generate":
-        generate_command(args)
-    elif args.command == "list":
-        list_command(args)
-    elif args.command == "info":
-        info_command(args)
-    elif args.command == "help":
-        help_command(parser)
-    else:
-        logging.error(f"Unsupported command: {args.command}")
-        print(parser.format_help())
+    if not hasattr(args, "func"):
+        parser.print_help()
+        sys.exit(0)
+
+    args.func(args)
+
+
+def launch_gui(args: argparse.Namespace) -> None:
+    """
+    Launch the graphical user interface.
+    
+    Args:
+        args: Command line arguments containing the IP library file.
+    """
+    try:
+        from PyQt6.QtWidgets import QApplication
+        from ip_configurator_gui import MainWindow
+    except ImportError:
+        logging.error("PyQt6 is required for the GUI. Install it with: pip install PyQt6")
         sys.exit(1)
+        
+    app = QApplication(sys.argv)
+    
+    # Load IP library
+    ip_json = load_json_file(args.ip_lib)
+    ip_library = parse_ip_library(ip_json)
+    
+    # Create and show main window
+    window = MainWindow(ip_library)
+    window.show()
+    
+    sys.exit(app.exec())
 
 
 if __name__ == "__main__":
