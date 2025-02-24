@@ -19,4 +19,10 @@ from .core import (
     parse_bus_slaves,
     generate_wrapper,
     generate_c_header,
-) 
+)
+
+# Import Caravel integration if available
+try:
+    from .caravel_integration import CaravelIntegration
+except ImportError:
+    pass 

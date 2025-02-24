@@ -15,6 +15,7 @@ setup(
         "PyYAML>=6.0",
         "PyQt6>=6.0; python_version>='3.9'",
         "requests>=2.25.0",
+        "pathlib>=1.0.1",
     ],
     entry_points={
         "console_scripts": [

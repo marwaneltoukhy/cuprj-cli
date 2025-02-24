@@ -20,6 +20,14 @@ from .core import (
     fetch_yaml_from_repo,
 )
 
+# Import the new CaravelIntegration class
+try:
+    from .caravel_integration import CaravelIntegration
+    CARAVEL_INTEGRATION_AVAILABLE = True
+except ImportError:
+    logging.warning("CaravelIntegration module not found. Caravel integration commands will be disabled.")
+    CARAVEL_INTEGRATION_AVAILABLE = False
+
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 
 
@@ -63,6 +71,34 @@ def generate_command(args: argparse.Namespace) -> None:
         with open(header_file, "w") as f:
             f.write(header_code)
         logging.info(f"Generated C header file: {header_file}")
+    
+    # If caravel integration is requested, update the user_project_wrapper.v file
+    if args.caravel_root and CARAVEL_INTEGRATION_AVAILABLE:
+        try:
+            caravel = CaravelIntegration(args.caravel_root)
+            
+            # Update user_project_wrapper.v
+            if not args.header_only:
+                caravel.update_user_project_wrapper(wrapper_code)
+                logging.info(f"Updated user_project_wrapper.v in {args.caravel_root}")
+            
+            # Update OpenLane config if requested
+            if args.update_openlane:
+                module_names = [slave.type for slave in bus_slaves.slaves]
+                cell_counts = {slave.type: generator.processed_slaves[i].cell_count 
+                              for i, slave in enumerate(bus_slaves.slaves)}
+                caravel.update_openlane_config(module_names, cell_counts)
+                logging.info(f"Updated OpenLane config in {args.caravel_root}")
+            
+            # Create cocotb test if requested
+            if args.create_test:
+                module_names = [slave.type for slave in bus_slaves.slaves]
+                caravel.create_cocotb_test(args.test_name, module_names)
+                logging.info(f"Created cocotb test '{args.test_name}' in {args.caravel_root}")
+                
+        except Exception as e:
+            logging.error(f"Error during Caravel integration: {e}")
+            sys.exit(1)
 
 
 def list_command(args: argparse.Namespace) -> None:
@@ -200,6 +236,174 @@ def launch_gui(args: argparse.Namespace) -> None:
     sys.exit(app.exec())
 
 
+def caravel_update_wrapper_command(args: argparse.Namespace) -> None:
+    """
+    Update the user_project_wrapper.v file in a Caravel User Project.
+    
+    Args:
+        args: Command line arguments containing the Caravel root directory and Verilog file.
+    """
+    if not CARAVEL_INTEGRATION_AVAILABLE:
+        logging.error("Caravel integration module not available.")
+        sys.exit(1)
+    
+    caravel_root = args.caravel_root
+    verilog_file = args.verilog_file
+    
+    try:
+        # Read the Verilog file
+        with open(verilog_file, "r") as f:
+            verilog_code = f.read()
+        
+        # Update the user_project_wrapper.v file
+        caravel = CaravelIntegration(caravel_root)
+        caravel.update_user_project_wrapper(verilog_code)
+        
+        logging.info(f"Updated user_project_wrapper.v in {caravel_root}")
+    except Exception as e:
+        logging.error(f"Error updating user_project_wrapper.v: {e}")
+        sys.exit(1)
+
+
+def caravel_update_openlane_command(args: argparse.Namespace) -> None:
+    """
+    Update the OpenLane config.tcl file in a Caravel User Project.
+    
+    Args:
+        args: Command line arguments containing the Caravel root directory and YAML file.
+    """
+    if not CARAVEL_INTEGRATION_AVAILABLE:
+        logging.error("Caravel integration module not available.")
+        sys.exit(1)
+    
+    caravel_root = args.caravel_root
+    yaml_file = args.yaml_file
+    ip_lib = args.ip_lib
+    
+    try:
+        # Load IP library
+        ip_json = load_json_file(ip_lib)
+        ip_library = parse_ip_library(ip_json)
+        
+        # Load bus slaves configuration
+        bus_yaml = load_yaml_file(yaml_file)
+        bus_slaves = parse_bus_slaves(bus_yaml)
+        
+        # Generate Verilog code to get cell counts
+        generator = BusGenerator(bus_slaves, ip_library)
+        
+        # Get module names and cell counts
+        module_names = [slave.type for slave in bus_slaves.slaves]
+        cell_counts = {slave.type: generator.processed_slaves[i].cell_count 
+                      for i, slave in enumerate(bus_slaves.slaves)}
+        
+        # Update the OpenLane config.tcl file
+        caravel = CaravelIntegration(caravel_root)
+        caravel.update_openlane_config(module_names, cell_counts)
+        
+        logging.info(f"Updated OpenLane config in {caravel_root}")
+    except Exception as e:
+        logging.error(f"Error updating OpenLane config: {e}")
+        sys.exit(1)
+
+
+def caravel_create_test_command(args: argparse.Namespace) -> None:
+    """
+    Create a cocotb test in a Caravel User Project.
+    
+    Args:
+        args: Command line arguments containing the Caravel root directory, test name, and YAML file.
+    """
+    if not CARAVEL_INTEGRATION_AVAILABLE:
+        logging.error("Caravel integration module not available.")
+        sys.exit(1)
+    
+    caravel_root = args.caravel_root
+    test_name = args.test_name
+    yaml_file = args.yaml_file
+    ip_lib = args.ip_lib
+    
+    try:
+        # Load IP library
+        ip_json = load_json_file(ip_lib)
+        ip_library = parse_ip_library(ip_json)
+        
+        # Load bus slaves configuration
+        bus_yaml = load_yaml_file(yaml_file)
+        bus_slaves = parse_bus_slaves(bus_yaml)
+        
+        # Get module names
+        module_names = [slave.type for slave in bus_slaves.slaves]
+        
+        # Create the cocotb test
+        caravel = CaravelIntegration(caravel_root)
+        caravel.create_cocotb_test(test_name, module_names)
+        
+        logging.info(f"Created cocotb test '{test_name}' in {caravel_root}")
+    except Exception as e:
+        logging.error(f"Error creating cocotb test: {e}")
+        sys.exit(1)
+
+
+def caravel_run_test_command(args: argparse.Namespace) -> None:
+    """
+    Run a cocotb test in a Caravel User Project.
+    
+    Args:
+        args: Command line arguments containing the Caravel root directory, test name, and simulation type.
+    """
+    if not CARAVEL_INTEGRATION_AVAILABLE:
+        logging.error("Caravel integration module not available.")
+        sys.exit(1)
+    
+    caravel_root = args.caravel_root
+    test_name = args.test_name
+    simulation_type = args.simulation_type
+    
+    try:
+        # Run the cocotb test
+        caravel = CaravelIntegration(caravel_root)
+        success = caravel.run_cocotb_test(test_name, simulation_type)
+        
+        if success:
+            logging.info(f"Test '{test_name}' ({simulation_type}) passed!")
+        else:
+            logging.error(f"Test '{test_name}' ({simulation_type}) failed.")
+            sys.exit(1)
+    except Exception as e:
+        logging.error(f"Error running cocotb test: {e}")
+        sys.exit(1)
+
+
+def caravel_run_openlane_command(args: argparse.Namespace) -> None:
+    """
+    Run OpenLane in a Caravel User Project.
+    
+    Args:
+        args: Command line arguments containing the Caravel root directory and target.
+    """
+    if not CARAVEL_INTEGRATION_AVAILABLE:
+        logging.error("Caravel integration module not available.")
+        sys.exit(1)
+    
+    caravel_root = args.caravel_root
+    target = args.target
+    
+    try:
+        # Run OpenLane
+        caravel = CaravelIntegration(caravel_root)
+        success = caravel.run_openlane(target)
+        
+        if success:
+            logging.info(f"OpenLane run for '{target}' completed successfully!")
+        else:
+            logging.error(f"OpenLane run for '{target}' failed.")
+            sys.exit(1)
+    except Exception as e:
+        logging.error(f"Error running OpenLane: {e}")
+        sys.exit(1)
+
+
 def main() -> None:
     """Main entry point for the CLI."""
     parser = argparse.ArgumentParser(
@@ -231,6 +435,27 @@ def main() -> None:
         action="store_true",
         help="Generate only C header file"
     )
+    # Add Caravel integration options
+    if CARAVEL_INTEGRATION_AVAILABLE:
+        generate_parser.add_argument(
+            "--caravel-root",
+            help="Path to the caravel_user_project directory for direct integration"
+        )
+        generate_parser.add_argument(
+            "--update-openlane",
+            action="store_true",
+            help="Update the OpenLane config.tcl file in the Caravel project"
+        )
+        generate_parser.add_argument(
+            "--create-test",
+            action="store_true",
+            help="Create a cocotb test in the Caravel project"
+        )
+        generate_parser.add_argument(
+            "--test-name",
+            default="wb_bus_test",
+            help="Name for the cocotb test (default: wb_bus_test)"
+        )
     generate_parser.set_defaults(func=generate_command)
 
     # List command
@@ -282,6 +507,62 @@ def main() -> None:
         help="IP library JSON file (default: ip-lib.json)"
     )
     gui_parser.set_defaults(func=launch_gui)
+    
+    # Caravel integration commands
+    if CARAVEL_INTEGRATION_AVAILABLE:
+        caravel_parser = subparsers.add_parser("caravel", help="Caravel User Project integration commands")
+        caravel_subparsers = caravel_parser.add_subparsers(dest="caravel_command", help="Caravel command to execute")
+        
+        # Update user_project_wrapper.v command
+        update_wrapper_parser = caravel_subparsers.add_parser("update-wrapper", help="Update user_project_wrapper.v file")
+        update_wrapper_parser.add_argument("caravel_root", help="Path to the caravel_user_project directory")
+        update_wrapper_parser.add_argument("verilog_file", help="Verilog file to use for updating user_project_wrapper.v")
+        update_wrapper_parser.set_defaults(func=caravel_update_wrapper_command)
+        
+        # Update OpenLane config command
+        update_openlane_parser = caravel_subparsers.add_parser("update-openlane", help="Update OpenLane config.tcl file")
+        update_openlane_parser.add_argument("caravel_root", help="Path to the caravel_user_project directory")
+        update_openlane_parser.add_argument("yaml_file", help="YAML configuration file")
+        update_openlane_parser.add_argument(
+            "--ip-lib", 
+            default=DEFAULT_IPS_URL,
+            help=f"IP library JSON file or URL (default: {DEFAULT_IPS_URL})"
+        )
+        update_openlane_parser.set_defaults(func=caravel_update_openlane_command)
+        
+        # Create cocotb test command
+        create_test_parser = caravel_subparsers.add_parser("create-test", help="Create a cocotb test")
+        create_test_parser.add_argument("caravel_root", help="Path to the caravel_user_project directory")
+        create_test_parser.add_argument("test_name", help="Name for the cocotb test")
+        create_test_parser.add_argument("yaml_file", help="YAML configuration file")
+        create_test_parser.add_argument(
+            "--ip-lib", 
+            default=DEFAULT_IPS_URL,
+            help=f"IP library JSON file or URL (default: {DEFAULT_IPS_URL})"
+        )
+        create_test_parser.set_defaults(func=caravel_create_test_command)
+        
+        # Run cocotb test command
+        run_test_parser = caravel_subparsers.add_parser("run-test", help="Run a cocotb test")
+        run_test_parser.add_argument("caravel_root", help="Path to the caravel_user_project directory")
+        run_test_parser.add_argument("test_name", help="Name of the cocotb test to run")
+        run_test_parser.add_argument(
+            "--simulation-type",
+            choices=["rtl", "gl", "gl-sdf"],
+            default="rtl",
+            help="Type of simulation to run (default: rtl)"
+        )
+        run_test_parser.set_defaults(func=caravel_run_test_command)
+        
+        # Run OpenLane command
+        run_openlane_parser = caravel_subparsers.add_parser("run-openlane", help="Run OpenLane")
+        run_openlane_parser.add_argument("caravel_root", help="Path to the caravel_user_project directory")
+        run_openlane_parser.add_argument(
+            "--target",
+            default="user_project_wrapper",
+            help="Target to build (default: user_project_wrapper)"
+        )
+        run_openlane_parser.set_defaults(func=caravel_run_openlane_command)
 
     args = parser.parse_args()
 
