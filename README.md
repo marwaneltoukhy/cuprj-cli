@@ -12,16 +12,11 @@ This repository contains a Python CLI tool for generating Verilog code for a Wis
 - **Robust Error Handling**: Provides clear error messages and logging to help troubleshoot issues with input files.
 - **CLI Commands**: Supports the `generate`, `list`, `info`, and `help` commands.
 - **GUI Interface**: Provides a graphical user interface for drag-and-drop IP configuration.
+- **Caravel Integration**: Seamlessly integrates with Caravel user projects, updating the user_project_wrapper.v file and OpenLane configuration.
 
 ## Installation
 
 Ensure you have Python 3.9 or later installed. Install the package using pip:
-
-```bash
-pip install cuprj-cli
-```
-
-Or install from source:
 
 ```bash
 git clone https://github.com/shalan/cuprj-cli.git
@@ -37,7 +32,7 @@ Generates the Wishbone bus Verilog code using the provided bus YAML file and the
 Usage:
 
 ```bash
-cuprj generate <bus_yaml_file> [--ip-lib IP_LIBRARY_JSON] [--output-dir OUTPUT_DIR] [--verilog-only] [--header-only]
+cuprj generate <bus_yaml_file> [--ip-lib IP_LIBRARY_JSON] [--output-dir OUTPUT_DIR] [--verilog-only] [--header-only] [--caravel-root CARAVEL_ROOT] [--update-openlane] [--create-test] [--test-name TEST_NAME]
 ```
 
 - bus_yaml_file: Path to the YAML file defining bus slaves.
@@ -45,6 +40,10 @@ cuprj generate <bus_yaml_file> [--ip-lib IP_LIBRARY_JSON] [--output-dir OUTPUT_D
 - --output-dir: (Optional) Output directory (default: current directory).
 - --verilog-only: (Optional) Generate only Verilog file.
 - --header-only: (Optional) Generate only C header file.
+- --caravel-root: (Optional) Path to the caravel_user_project directory for direct integration.
+- --update-openlane: (Optional) Update the OpenLane configuration file in the Caravel project.
+- --create-test: (Optional) Create a cocotb test in the Caravel project.
+- --test-name: (Optional) Name for the cocotb test (default: wb_bus_test).
 
 ### list
 Lists all slave types available in the IP library.
@@ -89,6 +88,40 @@ cuprj-gui [--ip-lib IP_LIBRARY_JSON]
 ```
 - --ip-lib: (Optional) Path to the IP library JSON file (default: ip-lib.json).
 
+### caravel
+Provides commands for Caravel User Project integration.
+
+Usage:
+```bash
+cuprj caravel <command> [options]
+```
+
+Available commands:
+- **update-wrapper**: Update user_project_wrapper.v file
+  ```bash
+  cuprj caravel update-wrapper <caravel_root> <verilog_file>
+  ```
+  
+- **update-openlane**: Update OpenLane config file
+  ```bash
+  cuprj caravel update-openlane <caravel_root> <yaml_file> [--ip-lib IP_LIBRARY_JSON]
+  ```
+  
+- **create-test**: Create a cocotb test
+  ```bash
+  cuprj caravel create-test <caravel_root> <test_name> <yaml_file> [--ip-lib IP_LIBRARY_JSON]
+  ```
+  
+- **run-test**: Run a cocotb test
+  ```bash
+  cuprj caravel run-test <caravel_root> <test_name> [--simulation-type {rtl,gl,gl-sdf}]
+  ```
+  
+- **run-openlane**: Run OpenLane
+  ```bash
+  cuprj caravel run-openlane <caravel_root> [--target TARGET]
+  ```
+
 ### help
 Displays the help message with details of all available commands.
 
@@ -131,7 +164,7 @@ slaves:
 
 ## GUI Usage
 
-The GUI provides a drag-and-drop interface for configuring IPs. To launch the GUI, run:
+The GUI provides a user-friendly interface for configuring IPs and integrating with Caravel user projects. To launch the GUI, run:
 
 ```bash
 cuprj-gui
@@ -143,10 +176,33 @@ Or:
 cuprj gui
 ```
 
-The GUI allows you to:
-1. Drag IPs from the left panel to the user project space
-2. Configure IO pins and IRQ assignments
-3. Generate Verilog code with a single click
+### GUI Workflow
+
+1. **Set the Caravel Project Path**:
+   - Enter the path to your Caravel user project directory at the top of the window or click "Browse..." to select it.
+   - This path will be used for all Caravel integration operations.
+
+2. **Configure IPs**:
+   - Drag IPs from the left panel to the user project space.
+   - Each IP will be assigned a default base address and IO pins.
+
+3. **Generate Verilog**:
+   - Click "Generate Verilog" to create the Wishbone bus module.
+   - The `wb_bus.v` file will be saved directly to your project's RTL directory if the project path is set.
+
+4. **Caravel Integration**:
+   - Go to the "Caravel Integration" tab to access integration features.
+   - Click "Update user_project_wrapper.v" to update the wrapper file with the wb_bus instantiation.
+   - Click "Update OpenLane Config" to update the configuration for hardening the design.
+   - Click "Run OpenLane" to run the OpenLane flow (requires proper PDK and OpenLane setup).
+
+### Environment Variables
+
+The tool automatically detects and uses the following environment variables:
+- `PDK_ROOT`: Path to the PDK directory (defaults to `<caravel_root>/../dependencies/pdks`).
+- `OPENLANE_ROOT`: Path to the OpenLane directory (defaults to `<caravel_root>/../dependencies/openlane_src`).
+
+If these variables are not set, the tool will use default paths based on the Caravel project location.
 
 ## Disclaimer
 This project was developed with the help of ChatGPT o3-mini-high model.
